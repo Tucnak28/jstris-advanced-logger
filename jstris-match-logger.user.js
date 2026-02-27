@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Jstris Match Logger (Tetra Stats & Replay Edition)
 // @namespace    http://tampermonkey.net/
-// @version      4.5
-// @description  Hooks StatsManager, calculates APP, logs advanced metrics/replays, and uses IndexedDB for massive storage and a Bot replay
+// @version      4.6
+// @description  Hooks StatsManager, logs base metrics/replays, calculates advanced math on-the-fly, dynamic UI.
 // @match        https://jstris.jezevec10.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js
 // @grant        none
@@ -11,6 +11,7 @@
 (function() {
     'use strict';
 
+    // 1. Hook StatsManager
     let hookInterval = setInterval(() => {
         if (typeof StatsManager !== 'undefined' && StatsManager.prototype.render) {
             clearInterval(hookInterval);
@@ -19,7 +20,7 @@
                 window.myLiveStats = this;
                 return originalRender.apply(this, arguments);
             };
-            console.log("🔥 Advanced Tetra Stats & Replay Hook Injected! (v4.3 - IndexedDB Edition)");
+            console.log("🔥 Advanced Tetra Stats & Replay Hook Injected! (v4.6 - Dynamic Math Edition)");
         }
     }, 500);
 
@@ -43,12 +44,55 @@
 
     const radians = (deg) => deg * (Math.PI / 180);
 
+    // --- DYNAMIC MATH CALCULATOR ---
+    function calculateAdvancedStats(matchLog) {
+        let pps = matchLog.PPS || 0;
+        let blocks = matchLog.BLOCKS || 0;
+        let attack = matchLog.ATTACK || 0;
+        let apm = matchLog.APM || 0;
+        let vs = matchLog.VS || 0;
+
+        let adv = {};
+
+        adv.APP = parseFloat((blocks > 0 ? (attack / blocks) : 0).toFixed(4));
+        adv.VS_APM = parseFloat((apm > 0 ? (vs / apm) : 0).toFixed(4));
+        adv.DSS = parseFloat(((vs / 100) - (apm / 60)).toFixed(4));
+        adv.DSP = parseFloat((pps > 0 ? (adv.DSS / pps) : 0).toFixed(4));
+        adv.APP_DSP = parseFloat((adv.APP + adv.DSP).toFixed(4));
+        adv.CHEESE = parseFloat(((adv.DSP * 150) + ((adv.VS_APM - 2) * 50) + (0.6 - adv.APP) * 125).toFixed(2));
+        adv.GBE = parseFloat((pps > 0 ? ((adv.APP * adv.DSS) / pps) * 2 : 0).toFixed(4));
+        adv.WAPP = parseFloat((adv.APP - 5 * Math.tan(radians((adv.CHEESE / -30) + 1))).toFixed(4));
+        adv.AREA = parseFloat(((apm * 1) + (pps * 45) + (vs * 0.444) + (adv.APP * 185) + (adv.DSS * 175) + (adv.DSP * 450) + (adv.GBE * 315)).toFixed(2));
+
+        let srarea = (pps * 135) + (adv.APP * 290) + (adv.DSP * 700);
+        let statrank = 11.2 * Math.atan((srarea - 93) / 130) + 1;
+        if (statrank <= 0) statrank = 0.001;
+
+        let ntemp = pps * (150 + (((adv.VS_APM) - 1.66) * 35)) + adv.APP * 290 + adv.DSP * 700;
+        let estglicko = 0.000013 * Math.pow(ntemp, 3) - 0.0196 * Math.pow(ntemp, 2) + (12.645 * ntemp) - 1005.4;
+        let pi = Math.PI, ln10 = Math.LN10;
+        adv.EST_TR = parseFloat((25000 / (1 + Math.pow(10, (((1500 - estglicko) * pi) / Math.sqrt(((3 * Math.pow(ln10, 2)) * Math.pow(60, 2)) + (2500 * ((64 * Math.pow(pi, 2)) + (147 * Math.pow(ln10, 2))))))))).toFixed(2));
+
+        let nmapm = ((apm / srarea) / ((0.069 * Math.pow(1.0017, (Math.pow(statrank, 5) / 4700))) + statrank / 360)) - 1;
+        let nmpps = ((pps / srarea) / (0.0084264 * Math.pow(2.14, (-2 * (statrank / 2.7 + 1.03))) - statrank / 5750 + 0.0067)) - 1;
+        let nmapp = (adv.APP / (0.1368803292 * Math.pow(1.0024, (Math.pow(statrank, 5) / 2800)) + statrank / 54)) - 1;
+        let nmdsp = (adv.DSP / (0.02136327583 * Math.pow(14, ((statrank - 14.75) / 3.9)) + statrank / 152 + 0.022)) - 1;
+        let nmgbe = (adv.GBE / (statrank / 350 + 0.005948424455 * Math.pow(3.8, ((statrank - 6.1) / 4)) + 0.006)) - 1;
+        let nmvsapm = (adv.VS_APM / (-Math.pow(((statrank - 16) / 36), 2) + 2.133)) - 1;
+
+        adv.STYLE_OPENER = parseFloat((((nmapm + nmpps * 0.75 + nmvsapm * -10 + nmapp * 0.75 + nmdsp * -0.25) / 3.5) + 0.5).toFixed(3));
+        adv.STYLE_PLONK = parseFloat((((nmgbe + nmapp + nmdsp * 0.75 + nmpps * -1) / 2.73) + 0.5).toFixed(3));
+        adv.STYLE_STRIDE = parseFloat((((nmapm * -0.25 + nmpps + nmapp * -2 + nmdsp * -0.5) * 0.79) + 0.5).toFixed(3));
+        adv.STYLE_INFDS = parseFloat((((nmdsp + nmapp * -0.75 + nmapm * 0.5 + nmvsapm * 1.5 + nmpps * 0.5) * 0.9) + 0.5).toFixed(3));
+
+        return adv;
+    }
+
     async function logAllMatchData() {
         if (!window.myLiveStats || !window.myLiveStats.stats) return;
 
         try {
             let engineStats = window.myLiveStats.stats;
-
             let now = new Date();
             let localTime = now.getFullYear() + '-' +
                 String(now.getMonth() + 1).padStart(2, '0') + '-' +
@@ -59,17 +103,11 @@
 
             let matchLog = { TIMESTAMP: localTime };
 
-            // --- DOM SCRAPE: OPPONENT STATS & WIN/LOSS ---
             matchLog.USER_WON = 0;
-            try {
-                matchLog.BOT_NAME = game.Bots.bots[0].botType.name;
-            } catch (e) {
-                matchLog.BOT_NAME = "Unknown";
-            }
+            try { matchLog.BOT_NAME = game.Bots.bots[0].botType.name; }
+            catch (e) { matchLog.BOT_NAME = "Unknown"; }
 
-            matchLog.BOT_APM = 0;
-            matchLog.BOT_PPS = 0;
-            matchLog.BOT_SENT = 0;
+            matchLog.BOT_APM = 0; matchLog.BOT_PPS = 0; matchLog.BOT_SENT = 0;
 
             try {
                 const rows = document.querySelectorAll('#resultsContent table tr');
@@ -84,17 +122,13 @@
                                 matchLog.BOT_SENT = parseFloat(cols[4].innerText) || 0;
                                 matchLog.BOT_PPS = parseFloat(cols[5].innerText) || 0;
                                 matchLog.BOT_APM = parseFloat(cols[6].innerText) || 0;
-                            } else {
-                                if (placement === "1.") {
-                                    matchLog.USER_WON = 1;
-                                }
+                            } else if (placement === "1.") {
+                                matchLog.USER_WON = 1;
                             }
                         }
                     }
                 }
-            } catch (err) {
-                console.error("Error scraping results table:", err);
-            }
+            } catch (err) { console.error("Error scraping table:", err); }
 
             for (let key in engineStats) {
                 if (engineStats.hasOwnProperty(key)) {
@@ -102,129 +136,97 @@
                     if (rawValue !== undefined) {
                         if (typeof rawValue === 'string' && rawValue.includes(':')) {
                             let parts = rawValue.split(':');
-                            let minutes = parseInt(parts[0], 10);
-                            let seconds = parseFloat(parts[1]);
-                            matchLog[key] = (minutes * 60) + seconds;
+                            matchLog[key] = (parseInt(parts[0], 10) * 60) + parseFloat(parts[1]);
                         } else {
                             matchLog[key] = Number(rawValue) || 0;
                         }
-                    } else {
-                        matchLog[key] = 0;
-                    }
+                    } else { matchLog[key] = 0; }
                 }
             }
 
-            // --- BASE VARIABLES ---
-            let pps = matchLog.PPS || 0;
-            let blocks = matchLog.BLOCKS || 0;
-            let attack = matchLog.ATTACK || 0;
-            let apm = matchLog.APM || 0;
-            let vs = matchLog.VS || 0;
-            let clockTime = matchLog.CLOCK || 0;
-
-            let timeSeconds = clockTime > 0 ? clockTime : (pps > 0 ? (blocks / pps) : 0);
-            matchLog.TIME_SECONDS = parseFloat(timeSeconds.toFixed(2));
+            let clockTime = matchLog.CLOCK || 0, pps = matchLog.PPS || 0, blocks = matchLog.BLOCKS || 0;
+            matchLog.TIME_SECONDS = parseFloat((clockTime > 0 ? clockTime : (pps > 0 ? (blocks / pps) : 0)).toFixed(2));
 
             if (blocks < 20) {
                 console.log(`Match ignored: Only dropped ${blocks} blocks`);
                 return;
             }
 
-            // --- ADVANCED TETRA STATS MATH ---
-            let app = (blocks > 0) ? (attack / blocks) : 0;
-            matchLog.APP = parseFloat(app.toFixed(4));
-            let vs_apm = (apm > 0) ? (vs / apm) : 0;
-            matchLog.VS_APM = parseFloat(vs_apm.toFixed(4));
-            let dss = (vs / 100) - (apm / 60);
-            matchLog.DSS = parseFloat(dss.toFixed(4));
-            let dsp = (pps > 0) ? (dss / pps) : 0;
-            matchLog.DSP = parseFloat(dsp.toFixed(4));
-            let app_dsp = app + dsp;
-            matchLog.APP_DSP = parseFloat(app_dsp.toFixed(4));
-            let cheese = (dsp * 150) + ((vs_apm - 2) * 50) + (0.6 - app) * 125;
-            matchLog.CHEESE = parseFloat(cheese.toFixed(2));
-            let gbe = (pps > 0) ? ((app * dss) / pps) * 2 : 0;
-            matchLog.GBE = parseFloat(gbe.toFixed(4));
-            let wapp = app - 5 * Math.tan(radians((cheese / -30) + 1));
-            matchLog.WAPP = parseFloat(wapp.toFixed(4));
-            let area = (apm * 1) + (pps * 45) + (vs * 0.444) + (app * 185) + (dss * 175) + (dsp * 450) + (gbe * 315);
-            matchLog.AREA = parseFloat(area.toFixed(2));
-
-            // --- ESTIMATED TR CALCULATIONS ---
-            let srarea = (pps * 135) + (app * 290) + (dsp * 700);
-            let statrank = 11.2 * Math.atan((srarea - 93) / 130) + 1;
-            if (statrank <= 0) statrank = 0.001;
-
-            let ntemp = pps * (150 + (((vs_apm) - 1.66) * 35)) + app * 290 + dsp * 700;
-            let estglicko = 0.000013 * Math.pow(ntemp, 3) - 0.0196 * Math.pow(ntemp, 2) + (12.645 * ntemp) - 1005.4;
-            let pi = Math.PI;
-            let ln10 = Math.LN10;
-            let esttr = 25000 / (1 + Math.pow(10, (((1500 - estglicko) * pi) / Math.sqrt(((3 * Math.pow(ln10, 2)) * Math.pow(60, 2)) + (2500 * ((64 * Math.pow(pi, 2)) + (147 * Math.pow(ln10, 2))))))));
-            matchLog.EST_TR = parseFloat(esttr.toFixed(2));
-
-            // --- PLAYSTYLE CALCULATIONS ---
-            let nmapm = ((apm / srarea) / ((0.069 * Math.pow(1.0017, (Math.pow(statrank, 5) / 4700))) + statrank / 360)) - 1;
-            let nmpps = ((pps / srarea) / (0.0084264 * Math.pow(2.14, (-2 * (statrank / 2.7 + 1.03))) - statrank / 5750 + 0.0067)) - 1;
-            let nmapp = (app / (0.1368803292 * Math.pow(1.0024, (Math.pow(statrank, 5) / 2800)) + statrank / 54)) - 1;
-            let nmdsp = (dsp / (0.02136327583 * Math.pow(14, ((statrank - 14.75) / 3.9)) + statrank / 152 + 0.022)) - 1;
-            let nmgbe = (gbe / (statrank / 350 + 0.005948424455 * Math.pow(3.8, ((statrank - 6.1) / 4)) + 0.006)) - 1;
-            let nmvsapm = (vs_apm / (-Math.pow(((statrank - 16) / 36), 2) + 2.133)) - 1;
-
-            let style_opener = ((nmapm + nmpps * 0.75 + nmvsapm * -10 + nmapp * 0.75 + nmdsp * -0.25) / 3.5) + 0.5;
-            let style_plonk = ((nmgbe + nmapp + nmdsp * 0.75 + nmpps * -1) / 2.73) + 0.5;
-            let style_stride = ((nmapm * -0.25 + nmpps + nmapp * -2 + nmdsp * -0.5) * 0.79) + 0.5;
-            let style_infds = ((nmdsp + nmapp * -0.75 + nmapm * 0.5 + nmvsapm * 1.5 + nmpps * 0.5) * 0.9) + 0.5;
-
-            matchLog.STYLE_OPENER = parseFloat(style_opener.toFixed(3));
-            matchLog.STYLE_PLONK = parseFloat(style_plonk.toFixed(3));
-            matchLog.STYLE_STRIDE = parseFloat(style_stride.toFixed(3));
-            matchLog.STYLE_INFDS = parseFloat(style_infds.toFixed(3));
-
-            // --- EXTRACT REPLAY STRING ---
+            // EXTRACT REPLAYS
             try {
-                game.Replay.getData()
-                matchLog.REPLAY = typeof game !== 'undefined' && game.Replay && game.Replay.string ? game.Replay.string : "";
-            } catch (e) {
-                matchLog.REPLAY = "";
-                console.warn("Could not extract replay string.", e);
-            }
+                game.Replay.getData();
+                matchLog.REPLAY = game?.Replay?.string || "";
+            } catch (e) { matchLog.REPLAY = ""; }
 
             try {
-                game.Bots.bots[0].g.Replay.getData()
+                let botReplay = game?.Bots?.bots?.[0]?.g?.Replay;
+                if(botReplay) {
+                    botReplay.getData();
+                    matchLog.BOT_REPLAY = botReplay.string || "";
+                } else { matchLog.BOT_REPLAY = ""; }
+            } catch (e) { matchLog.BOT_REPLAY = ""; }
 
-                matchLog.BOT_REPLAY = typeof game !== 'undefined' && game.Bots.bots[0].g.Replay && game.Bots.bots[0].g.Replay.string ? game.Bots.bots[0].g.Replay.string : "";
-            } catch (e) {
-                matchLog.BOT_REPLAY = "";
-                console.warn("Could not extract bot replay string.", e);
-            }
-
-            // --- SAVE TO INDEXEDDB (localForage) ---
+            // SAVE ONLY BASE STATS TO DB
             try {
-                let log = await localforage.getItem('jstris_log');
-                log = log ? log : [];
+                let log = await localforage.getItem('jstris_log') || [];
                 log.push(matchLog);
-
                 await localforage.setItem('jstris_log', log);
-                console.log("✅ ADVANCED MATCH LOG SAVED TO INDEXEDDB:", matchLog);
+                console.log("✅ BASE MATCH LOG SAVED TO INDEXEDDB:", matchLog);
             } catch (storageError) {
-                console.warn("⚠️ IndexedDB error! Checking quota/pruning...", storageError);
-                try {
-                    let log = await localforage.getItem('jstris_log');
-                    if (log) {
-                        log.splice(0, 50);
-                        await localforage.setItem('jstris_log', log);
-                    }
-                } catch (e) {
-                    console.error("Critical error pruning IndexedDB", e);
-                }
+                console.warn("⚠️ IndexedDB error!", storageError);
             }
+        } catch (e) { console.error("Error reading hooked stats:", e); }
+    }
 
-        } catch (e) {
-            console.error("Error reading hooked stats:", e);
+    // --- CSV EXPORT GENERATOR ---
+    async function generateCSV(data, isAdvanced, btnElement) {
+        let originalText = btnElement.innerText;
+        btnElement.innerText = "⏳ Exporting...";
+        btnElement.style.background = "#555";
+
+        // Small delay to let the UI update before heavy processing
+        await new Promise(r => setTimeout(r, 50));
+
+        try {
+            let processData = data.map(row => {
+                // If advanced, merge the base stats with the calculated math
+                return isAdvanced ? { ...row, ...calculateAdvancedStats(row) } : row;
+            });
+
+            let headerSet = new Set();
+            processData.forEach(row => Object.keys(row).forEach(key => headerSet.add(key)));
+            let headers = Array.from(headerSet);
+
+            let csvContent = headers.join(',') + '\n';
+
+            processData.forEach(row => {
+                let values = headers.map(header => {
+                    let val = row[header] !== undefined ? row[header] : 0;
+                    if (typeof val === 'string') { val = '"' + val.replace(/"/g, '""') + '"'; }
+                    return val;
+                });
+                csvContent += values.join(',') + '\n';
+            });
+
+            let now = new Date();
+            let dateStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+            let name = isAdvanced ? `Jstris_Advanced_Stats_${dateStr}.csv` : `Jstris_Base_Stats_${dateStr}.csv`;
+
+            let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            let link = document.createElement('a');
+            link.href = URL.createObjectURL(blob);
+            link.download = name;
+            link.click();
+        } catch (err) {
+            alert("Failed to export. Check console.");
+            console.error(err);
+        } finally {
+            btnElement.innerText = originalText;
+            btnElement.style.background = "#222";
         }
     }
 
-    // --- CSV EXPORT UI ---
+    // --- SMALL MENU ---
     function createMenu() {
         const targetContainer = document.getElementById('gstats');
         if (!targetContainer) {
@@ -232,11 +234,9 @@
             return;
         }
 
-        // Main Container
         const menuContainer = document.createElement('div');
         menuContainer.style.cssText = 'margin-top: -35px; margin-left: 50px; text-align: center; position: relative;';
 
-        // Toggle Button
         const toggleBtn = document.createElement('button');
         toggleBtn.innerText = 'Data Menu';
         toggleBtn.style.cssText = `
@@ -247,7 +247,6 @@
         toggleBtn.onmouseover = () => { toggleBtn.style.color = "#fff"; toggleBtn.style.borderColor = "#666"; };
         toggleBtn.onmouseout = () => { toggleBtn.style.color = "#aaa"; toggleBtn.style.borderColor = "#333"; };
 
-        // Panel (Hidden by default)
         const panel = document.createElement('div');
         panel.style.cssText = `
             display: none; background: #111; border: 1px solid #444; border-radius: 4px;
@@ -255,17 +254,16 @@
             margin-top: 5px; z-index: 100; min-width: 120px; box-shadow: 0px 4px 6px rgba(0,0,0,0.5);
         `;
 
-        // Export Button
-        const exportBtn = document.createElement('button');
-        exportBtn.innerText = 'Export CSV';
-        exportBtn.style.cssText = `
-            display: block; width: 100%; background: #222; color: #ddd; border: 1px solid #555;
+        const viewStatsBtn = document.createElement('button');
+        viewStatsBtn.innerText = 'View Stats';
+        viewStatsBtn.style.cssText = `
+            display: block; width: 100%; background: #2a2a2a; color: #ddd; border: 1px solid #555;
             cursor: pointer; padding: 5px; margin-bottom: 5px; font-size: 11px; border-radius: 3px;
         `;
-        exportBtn.onmouseover = () => exportBtn.style.background = "#333";
-        exportBtn.onmouseout = () => exportBtn.style.background = "#222";
+        viewStatsBtn.onmouseover = () => viewStatsBtn.style.background = "#444";
+        viewStatsBtn.onmouseout = () => viewStatsBtn.style.background = "#2a2a2a";
+        viewStatsBtn.onclick = () => { panel.style.display = 'none'; renderStatsPage(); };
 
-        // Delete Latest Button
         const deleteLatestBtn = document.createElement('button');
         deleteLatestBtn.innerText = 'Delete Latest';
         deleteLatestBtn.style.cssText = `
@@ -274,25 +272,22 @@
         `;
         deleteLatestBtn.onmouseover = () => deleteLatestBtn.style.background = "#663";
         deleteLatestBtn.onmouseout = () => deleteLatestBtn.style.background = "#442";
-
-        // View Stats Button
-        const viewStatsBtn = document.createElement('button');
-        viewStatsBtn.innerText = 'View Stats Page';
-        viewStatsBtn.style.cssText = `
-            display: block; width: 100%; background: #2a2a2a; color: #ddd; border: 1px solid #555;
-            cursor: pointer; padding: 5px; margin-bottom: 5px; font-size: 11px; border-radius: 3px;
-        `;
-        viewStatsBtn.onmouseover = () => viewStatsBtn.style.background = "#444";
-        viewStatsBtn.onmouseout = () => viewStatsBtn.style.background = "#2a2a2a";
-
-        viewStatsBtn.onclick = () => {
-            panel.style.display = 'none';
-            renderStatsPage();
+        deleteLatestBtn.onclick = async function() {
+            try {
+                let data = await localforage.getItem('jstris_log');
+                if (data && data.length > 0) {
+                    let latestMatch = data[data.length - 1];
+                    let matchTime = latestMatch.TIMESTAMP || "Unknown";
+                    if (confirm(`Remove the most recently logged match?\n\nTime: ${matchTime}\nBlocks: ${latestMatch.BLOCKS || '?'}`)) {
+                        data.pop();
+                        await localforage.setItem('jstris_log', data);
+                        alert(`Latest entry removed successfully!`);
+                        panel.style.display = 'none';
+                    }
+                } else { alert("No entries found to remove."); }
+            } catch (err) { alert("Failed to remove data."); }
         };
 
-        panel.appendChild(viewStatsBtn);
-
-        // Clear Button
         const clearBtn = document.createElement('button');
         clearBtn.innerText = 'Clear Data';
         clearBtn.style.cssText = `
@@ -301,98 +296,17 @@
         `;
         clearBtn.onmouseover = () => clearBtn.style.background = "#622";
         clearBtn.onmouseout = () => clearBtn.style.background = "#422";
-
-        toggleBtn.onclick = () => {
-            panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
-        };
-
-        exportBtn.onclick = async function() {
-            try {
-                let data = await localforage.getItem('jstris_log');
-
-                if (!data || data.length === 0) {
-                    alert("No stats logged yet!");
-                    return;
-                }
-
-                let headerSet = new Set();
-                data.forEach(row => Object.keys(row).forEach(key => headerSet.add(key)));
-                let headers = Array.from(headerSet);
-
-                let csvContent = headers.join(',') + '\n';
-
-                data.forEach(row => {
-                    let values = headers.map(header => {
-                        let val = row[header] !== undefined ? row[header] : 0;
-                        if (typeof val === 'string') {
-                            val = '"' + val.replace(/"/g, '""') + '"';
-                        }
-                        return val;
-                    });
-                    csvContent += values.join(',') + '\n';
-                });
-
-                let now = new Date();
-                let localDateStr = now.getFullYear() + '-' +
-                                   String(now.getMonth() + 1).padStart(2, '0') + '-' +
-                                   String(now.getDate()).padStart(2, '0');
-
-                let blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                let url = URL.createObjectURL(blob);
-                let link = document.createElement('a');
-                link.href = url;
-                link.download = `Jstris_Advanced_Stats_${localDateStr}.csv`;
-                link.click();
-
-                panel.style.display = 'none';
-            } catch (err) {
-                console.error("Error generating CSV from IndexedDB", err);
-                alert("Failed to export data. Check console for details.");
-            }
-        };
-
-        deleteLatestBtn.onclick = async function() {
-            try {
-                let data = await localforage.getItem('jstris_log');
-
-                if (data && data.length > 0) {
-
-                    let latestMatch = data[data.length - 1];
-
-                    let matchTime = latestMatch.TIMESTAMP || "Unknown";
-                    let matchBlocks = latestMatch.BLOCKS !== undefined ? latestMatch.BLOCKS : "Unknown";
-
-                    if (confirm(`Remove the most recently logged match?\n\nTime: ${matchTime}\nBlocks: ${matchBlocks}`)) {
-
-                        data.pop();
-                        await localforage.setItem('jstris_log', data);
-
-                        alert(`Latest entry removed successfully!\n\nTime: ${matchTime}\nBlocks: ${matchBlocks}`);
-                        panel.style.display = 'none';
-                    }
-                } else {
-                    alert("No entries found to remove.");
-                }
-            } catch (err) {
-                console.error("Error removing latest entry:", err);
-                alert("Failed to remove data. Check console for details.");
-            }
-        };
-
         clearBtn.onclick = async function() {
             if (confirm("WARNING: This will permanently delete all logged Jstris match stats and replays. Are you sure?")) {
-                try {
-                    await localforage.setItem('jstris_log', []);
-                    alert("Local database successfully cleared.");
-                    panel.style.display = 'none';
-                } catch (err) {
-                    console.error("Error clearing data:", err);
-                    alert("Failed to clear data. Check console for details.");
-                }
+                await localforage.setItem('jstris_log', []);
+                alert("Database cleared.");
+                panel.style.display = 'none';
             }
         };
 
-        panel.appendChild(exportBtn);
+        toggleBtn.onclick = () => panel.style.display = panel.style.display === 'none' ? 'block' : 'none';
+
+        panel.appendChild(viewStatsBtn);
         panel.appendChild(deleteLatestBtn);
         panel.appendChild(clearBtn);
         menuContainer.appendChild(toggleBtn);
@@ -400,25 +314,20 @@
         targetContainer.appendChild(menuContainer);
     }
 
+    // --- LARGE OVERLAY ---
     async function renderStatsPage() {
-        let data;
-        try {
-            data = await localforage.getItem('jstris_log');
-        } catch (e) {
-            alert("Error reading database!");
-            return;
+        let rawData;
+        try { rawData = await localforage.getItem('jstris_log'); }
+        catch (e) { alert("Error reading database!"); return; }
+
+        if (!rawData || rawData.length === 0) {
+            alert("No stats logged yet to view!"); return;
         }
 
-        if (!data || data.length === 0) {
-            alert("No stats logged yet to view!");
-            return;
-        }
+        // Calculate advanced stats for viewing purposes
+        let displayData = rawData.map(row => ({ ...row, ...calculateAdvancedStats(row) }));
 
-        // --- SORTING STATE ---
-        let sortConfig = {
-            column: 'TIMESTAMP',
-            direction: 'desc'
-        };
+        let sortConfig = { column: 'TIMESTAMP', direction: 'desc' };
 
         const overlay = document.createElement('div');
         overlay.id = 'jstris-custom-stats-overlay';
@@ -436,6 +345,7 @@
             box-shadow: 0px 0px 20px rgba(0,0,0,1); overflow: hidden;
         `;
 
+        // HEADER
         const headerBox = document.createElement('div');
         headerBox.style.cssText = `
             background: #222; padding: 15px; border-bottom: 2px solid #333;
@@ -443,38 +353,50 @@
         `;
 
         const title = document.createElement('h2');
-        title.innerText = `Advanced Match Stats (${data.length} matches)`;
+        title.innerText = `Advanced Match Stats (${displayData.length} matches)`;
         title.style.cssText = 'color: #eee; margin: 0; font-size: 18px;';
+
+        // TOOLBAR (Exports + Close)
+        const toolbar = document.createElement('div');
+        toolbar.style.cssText = 'display: flex; gap: 10px;';
+
+        const btnStyle = `background: #222; color: #ddd; border: 1px solid #555; cursor: pointer; padding: 6px 12px; border-radius: 4px; font-weight: bold; font-size: 12px;`;
+
+        const expBaseBtn = document.createElement('button');
+        expBaseBtn.innerText = 'Export Base CSV';
+        expBaseBtn.style.cssText = btnStyle;
+        expBaseBtn.onclick = () => generateCSV(rawData, false, expBaseBtn);
+
+        const expAdvBtn = document.createElement('button');
+        expAdvBtn.innerText = 'Export Advanced CSV';
+        expAdvBtn.style.cssText = btnStyle + ' border-color: #357ebd; color: #7aa2f7;';
+        expAdvBtn.onclick = () => generateCSV(rawData, true, expAdvBtn);
 
         const closeBtn = document.createElement('button');
         closeBtn.innerText = 'Close X';
-        closeBtn.style.cssText = `
-            background: #833; color: white; border: none; padding: 8px 15px;
-            cursor: pointer; border-radius: 4px; font-weight: bold;
-        `;
+        closeBtn.style.cssText = btnStyle + `background: #833; color: white; border-color: #a44;`;
         closeBtn.onclick = () => document.body.removeChild(overlay);
-        closeBtn.onmouseover = () => closeBtn.style.background = "#a44";
-        closeBtn.onmouseout = () => closeBtn.style.background = "#833";
+
+        toolbar.appendChild(expBaseBtn);
+        toolbar.appendChild(expAdvBtn);
+        toolbar.appendChild(closeBtn);
 
         headerBox.appendChild(title);
-        headerBox.appendChild(closeBtn);
+        headerBox.appendChild(toolbar);
 
+        // TABLE
         const tableContainer = document.createElement('div');
         tableContainer.style.cssText = `flex-grow: 1; overflow: auto; padding: 0;`;
 
         const table = document.createElement('table');
-        table.style.cssText = `
-            width: 100%; border-collapse: collapse; color: #ccc; font-size: 12px;
-            text-align: right; white-space: nowrap;
-        `;
+        table.style.cssText = `width: 100%; border-collapse: collapse; color: #ccc; font-size: 12px; text-align: right; white-space: nowrap;`;
 
         let headerSet = new Set();
-        data.forEach(row => Object.keys(row).forEach(key => headerSet.add(key)));
+        displayData.forEach(row => Object.keys(row).forEach(key => headerSet.add(key)));
         let headers = Array.from(headerSet);
 
         let thead = document.createElement('thead');
         let headerRow = document.createElement('tr');
-
         let headerCells = {};
 
         headers.forEach(header => {
@@ -492,8 +414,7 @@
                 if (sortConfig.column === header) {
                     sortConfig.direction = sortConfig.direction === 'desc' ? 'asc' : 'desc';
                 } else {
-                    sortConfig.column = header;
-                    sortConfig.direction = 'desc';
+                    sortConfig.column = header; sortConfig.direction = 'desc';
                 }
                 updateTableBody();
             };
@@ -507,31 +428,16 @@
         let tbody = document.createElement('tbody');
         table.appendChild(tbody);
 
-        // --- DYNAMIC RENDERING FUNCTION ---
         const updateTableBody = () => {
             headers.forEach(h => {
-                let text = h;
-                if (sortConfig.column === h) {
-                    text += sortConfig.direction === 'desc' ? ' ▼' : ' ▲';
-                }
-                headerCells[h].innerText = text;
+                headerCells[h].innerText = h + (sortConfig.column === h ? (sortConfig.direction === 'desc' ? ' ▼' : ' ▲') : '');
             });
 
-            let sortedData = [...data].sort((a, b) => {
-                let valA = a[sortConfig.column];
-                let valB = b[sortConfig.column];
-
-                if (valA === undefined) valA = '';
-                if (valB === undefined) valB = '';
-
-                let comparison = 0;
-                if (typeof valA === 'number' && typeof valB === 'number') {
-                    comparison = valA - valB;
-                } else {
-                    comparison = String(valA).localeCompare(String(valB), undefined, { numeric: true });
-                }
-
-                return sortConfig.direction === 'desc' ? -comparison : comparison;
+            let sortedData = [...displayData].sort((a, b) => {
+                let valA = a[sortConfig.column] !== undefined ? a[sortConfig.column] : '';
+                let valB = b[sortConfig.column] !== undefined ? b[sortConfig.column] : '';
+                let comp = (typeof valA === 'number' && typeof valB === 'number') ? valA - valB : String(valA).localeCompare(String(valB), undefined, { numeric: true });
+                return sortConfig.direction === 'desc' ? -comp : comp;
             });
 
             tbody.innerHTML = '';
@@ -542,35 +448,22 @@
                 headers.forEach(header => {
                     let td = document.createElement('td');
                     td.style.cssText = 'padding: 6px 8px; border: 1px solid #333;';
-
                     let val = row[header] !== undefined ? row[header] : '-';
 
                     if ((header === 'REPLAY' || header === 'BOT_REPLAY') && typeof val === 'string' && val.length > 20) {
                         let shortText = val.substring(0, 15) + '...';
                         td.innerText = shortText;
                         td.title = "Click to copy replay";
-                        td.style.cursor = 'pointer';
-                        td.style.color = '#7aa2f7';
-                        td.style.fontWeight = 'bold';
+                        td.style.cssText += 'cursor: pointer; color: #7aa2f7; font-weight: bold;';
 
                         td.onclick = async () => {
                             try {
                                 await navigator.clipboard.writeText(val);
-                                td.innerText = "Copied!";
-                                td.style.color = "#a6e3a1";
-                                setTimeout(() => {
-                                    td.innerText = shortText;
-                                    td.style.color = '#7aa2f7';
-                                }, 1200);
-                            } catch (err) {
-                                console.error("Failed to copy", err);
-                                td.innerText = "Error";
-                                td.style.color = "#f38ba8";
-                            }
+                                td.innerText = "Copied!"; td.style.color = "#a6e3a1";
+                                setTimeout(() => { td.innerText = shortText; td.style.color = '#7aa2f7'; }, 1200);
+                            } catch (err) { td.innerText = "Error"; td.style.color = "#f38ba8"; }
                         };
-                    } else {
-                        td.innerText = val;
-                    }
+                    } else { td.innerText = val; }
 
                     tr.appendChild(td);
                 });
@@ -579,15 +472,12 @@
         };
 
         updateTableBody();
-
         tableContainer.appendChild(table);
         contentBox.appendChild(headerBox);
         contentBox.appendChild(tableContainer);
         overlay.appendChild(contentBox);
-
         document.body.appendChild(overlay);
     }
 
     createMenu();
-
 })();
