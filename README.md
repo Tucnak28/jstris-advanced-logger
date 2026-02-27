@@ -19,7 +19,7 @@ I originally put this together to keep track of my own bot matches and calculate
 ## Installation
 
 1. Make sure you have a userscript manager installed (like [Tampermonkey](https://www.tampermonkey.net/)).
-2. Click [here](https://github.com/Tucnak28/jstris-advanced-logger/raw/refs/heads/main/jstris-match-logger.user.js) to install the script. *(Note: Replace this placeholder with the link to the RAW .user.js file once uploaded)*.
+2. Click [here](https://github.com/Tucnak28/jstris-advanced-logger/raw/refs/heads/main/jstris-match-logger.user.js) to install the script.
 3. Accept the installation prompt.
 4. Refresh Jstris.
 
