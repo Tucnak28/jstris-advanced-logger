@@ -1,7 +1,7 @@
 // ==UserScript==
 // @name         Jstris Match Logger (Tetra Stats & Replay Edition)
 // @namespace    http://tampermonkey.net/
-// @version      4.8
+// @version      4.9
 // @description  Hooks StatsManager, logs base metrics, minimal UI replay buttons, CSV Import/Export.
 // @match        https://jstris.jezevec10.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js
@@ -135,9 +135,11 @@
                     if (rawValue !== undefined) {
                         if (typeof rawValue === 'string' && rawValue.includes(':')) {
                             let parts = rawValue.split(':');
-                            matchLog[key] = (parseInt(parts[0], 10) * 60) + parseFloat(parts[1]);
+                            let timeVal = (parseInt(parts[0], 10) * 60) + parseFloat(parts[1]);
+                            matchLog[key] = Math.round(timeVal * 1000) / 1000;
                         } else {
-                            matchLog[key] = Number(rawValue) || 0;
+                            let num = Number(rawValue) || 0;
+                            matchLog[key] = !Number.isInteger(num) ? Math.round(num * 1000) / 1000 : num;
                         }
                     } else { matchLog[key] = 0; }
                 }
@@ -190,7 +192,10 @@
             let obj = {};
             for (let j = 0; j < headers.length; j++) {
                 let val = currentline[j] ? currentline[j].replace(/^"|"$/g, '').trim() : '';
-                if (val !== '' && !isNaN(val)) val = Number(val);
+                if (val !== '' && !isNaN(val)) {
+                    val = Number(val);
+                    if (!Number.isInteger(val)) val = Math.round(val * 1000) / 1000;
+                }
                 obj[headers[j]] = val;
             }
             data.push(obj);
@@ -581,6 +586,11 @@
                     let td = document.createElement('td');
                     td.style.cssText = 'padding: 6px 8px; border: 1px solid #333;';
                     let val = row[header] !== undefined ? row[header] : '-';
+
+                    if (typeof val === 'number' && !Number.isInteger(val)) {
+                        val = Math.round(val * 1000) / 1000;
+                    }
+
                     td.innerText = val;
                     tr.appendChild(td);
                 });
