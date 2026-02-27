@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Jstris Match Logger (Tetra Stats & Replay Edition)
 // @namespace    http://tampermonkey.net/
-// @version      4.6
-// @description  Hooks StatsManager, logs base metrics/replays, calculates advanced math on-the-fly, dynamic UI.
+// @version      4.7
+// @description  Hooks StatsManager, logs base metrics, minimal UI replay buttons, organized CSVs.
 // @match        https://jstris.jezevec10.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js
 // @grant        none
@@ -20,7 +20,7 @@
                 window.myLiveStats = this;
                 return originalRender.apply(this, arguments);
             };
-            console.log("🔥 Advanced Tetra Stats & Replay Hook Injected! (v4.6 - Dynamic Math Edition)");
+            console.log("Advanced Tetra Stats & Replay Hook Injected! (v4.7 - Clean UI Edition)");
         }
     }, 500);
 
@@ -171,9 +171,9 @@
                 let log = await localforage.getItem('jstris_log') || [];
                 log.push(matchLog);
                 await localforage.setItem('jstris_log', log);
-                console.log("✅ BASE MATCH LOG SAVED TO INDEXEDDB:", matchLog);
+                console.log("BASE MATCH LOG SAVED TO INDEXEDDB:", matchLog);
             } catch (storageError) {
-                console.warn("⚠️ IndexedDB error!", storageError);
+                console.warn("IndexedDB error!", storageError);
             }
         } catch (e) { console.error("Error reading hooked stats:", e); }
     }
@@ -181,21 +181,22 @@
     // --- CSV EXPORT GENERATOR ---
     async function generateCSV(data, isAdvanced, btnElement) {
         let originalText = btnElement.innerText;
-        btnElement.innerText = "⏳ Exporting...";
+        btnElement.innerText = "Exporting...";
         btnElement.style.background = "#555";
 
-        // Small delay to let the UI update before heavy processing
         await new Promise(r => setTimeout(r, 50));
 
         try {
             let processData = data.map(row => {
-                // If advanced, merge the base stats with the calculated math
                 return isAdvanced ? { ...row, ...calculateAdvancedStats(row) } : row;
             });
 
             let headerSet = new Set();
             processData.forEach(row => Object.keys(row).forEach(key => headerSet.add(key)));
-            let headers = Array.from(headerSet);
+
+            let rawHeaders = Array.from(headerSet);
+            let coreHeaders = rawHeaders.filter(h => h !== 'TIMESTAMP' && h !== 'REPLAY' && h !== 'BOT_REPLAY');
+            let headers = ['TIMESTAMP', ...coreHeaders, 'REPLAY', 'BOT_REPLAY'];
 
             let csvContent = headers.join(',') + '\n';
 
@@ -324,9 +325,7 @@
             alert("No stats logged yet to view!"); return;
         }
 
-        // Calculate advanced stats for viewing purposes
         let displayData = rawData.map(row => ({ ...row, ...calculateAdvancedStats(row) }));
-
         let sortConfig = { column: 'TIMESTAMP', direction: 'desc' };
 
         const overlay = document.createElement('div');
@@ -356,10 +355,8 @@
         title.innerText = `Advanced Match Stats (${displayData.length} matches)`;
         title.style.cssText = 'color: #eee; margin: 0; font-size: 18px;';
 
-        // TOOLBAR (Exports + Close)
         const toolbar = document.createElement('div');
         toolbar.style.cssText = 'display: flex; gap: 10px;';
-
         const btnStyle = `background: #222; color: #ddd; border: 1px solid #555; cursor: pointer; padding: 6px 12px; border-radius: 4px; font-weight: bold; font-size: 12px;`;
 
         const expBaseBtn = document.createElement('button');
@@ -380,7 +377,6 @@
         toolbar.appendChild(expBaseBtn);
         toolbar.appendChild(expAdvBtn);
         toolbar.appendChild(closeBtn);
-
         headerBox.appendChild(title);
         headerBox.appendChild(toolbar);
 
@@ -391,15 +387,30 @@
         const table = document.createElement('table');
         table.style.cssText = `width: 100%; border-collapse: collapse; color: #ccc; font-size: 12px; text-align: right; white-space: nowrap;`;
 
+
         let headerSet = new Set();
         displayData.forEach(row => Object.keys(row).forEach(key => headerSet.add(key)));
-        let headers = Array.from(headerSet);
+        let allHeaders = Array.from(headerSet);
+
+        let dataHeaders = allHeaders.filter(h => h !== 'REPLAY' && h !== 'BOT_REPLAY' && h !== 'TIMESTAMP');
+
+        dataHeaders = ['TIMESTAMP', ...dataHeaders];
 
         let thead = document.createElement('thead');
         let headerRow = document.createElement('tr');
         let headerCells = {};
 
-        headers.forEach(header => {
+        let pRepTh = document.createElement('th');
+        pRepTh.innerText = "Ply. Rep";
+        pRepTh.style.cssText = `position: sticky; top: 0; background: #333; color: #fff; padding: 8px; border: 1px solid #444; z-index: 10; text-align: center;`;
+        headerRow.appendChild(pRepTh);
+
+        let bRepTh = document.createElement('th');
+        bRepTh.innerText = "Bot Rep";
+        bRepTh.style.cssText = `position: sticky; top: 0; background: #333; color: #fff; padding: 8px; border: 1px solid #444; border-right: 3px solid #555; z-index: 10; text-align: center;`;
+        headerRow.appendChild(bRepTh);
+
+        dataHeaders.forEach(header => {
             let th = document.createElement('th');
             th.innerText = header;
             th.style.cssText = `
@@ -428,8 +439,20 @@
         let tbody = document.createElement('tbody');
         table.appendChild(tbody);
 
+        const copyReplay = async (val, td, originalText) => {
+            try {
+                await navigator.clipboard.writeText(val);
+                td.innerText = "[ ✔ ]";
+                td.style.color = "#a6e3a1";
+                setTimeout(() => { td.innerText = originalText; td.style.color = originalText === '[ P ]' ? '#7aa2f7' : '#f77a7a'; }, 1000);
+            } catch (err) {
+                td.innerText = "[ x ]";
+                td.style.color = "#f38ba8";
+            }
+        };
+
         const updateTableBody = () => {
-            headers.forEach(h => {
+            dataHeaders.forEach(h => {
                 headerCells[h].innerText = h + (sortConfig.column === h ? (sortConfig.direction === 'desc' ? ' ▼' : ' ▲') : '');
             });
 
@@ -445,28 +468,34 @@
                 let tr = document.createElement('tr');
                 tr.style.background = index % 2 === 0 ? '#1a1a1a' : '#111';
 
-                headers.forEach(header => {
+                let pRepTd = document.createElement('td');
+                pRepTd.style.cssText = 'padding: 6px 8px; border: 1px solid #333; text-align: center;';
+                if (row['REPLAY'] && row['REPLAY'].length > 20) {
+                    pRepTd.innerText = "[ P ]";
+                    pRepTd.title = "Copy Player Replay";
+                    pRepTd.style.cssText += 'cursor: pointer; color: #7aa2f7; font-weight: bold;';
+                    pRepTd.onclick = () => copyReplay(row['REPLAY'], pRepTd, "[ P ]");
+                } else { pRepTd.innerText = "-"; }
+                tr.appendChild(pRepTd);
+
+                let bRepTd = document.createElement('td');
+                bRepTd.style.cssText = 'padding: 6px 8px; border: 1px solid #333; border-right: 3px solid #555; text-align: center;';
+                if (row['BOT_REPLAY'] && row['BOT_REPLAY'].length > 20) {
+                    bRepTd.innerText = "[ B ]";
+                    bRepTd.title = "Copy Bot Replay";
+                    bRepTd.style.cssText += 'cursor: pointer; color: #f77a7a; font-weight: bold;';
+                    bRepTd.onclick = () => copyReplay(row['BOT_REPLAY'], bRepTd, "[ B ]");
+                } else { bRepTd.innerText = "-"; }
+                tr.appendChild(bRepTd);
+
+                dataHeaders.forEach(header => {
                     let td = document.createElement('td');
                     td.style.cssText = 'padding: 6px 8px; border: 1px solid #333;';
                     let val = row[header] !== undefined ? row[header] : '-';
-
-                    if ((header === 'REPLAY' || header === 'BOT_REPLAY') && typeof val === 'string' && val.length > 20) {
-                        let shortText = val.substring(0, 15) + '...';
-                        td.innerText = shortText;
-                        td.title = "Click to copy replay";
-                        td.style.cssText += 'cursor: pointer; color: #7aa2f7; font-weight: bold;';
-
-                        td.onclick = async () => {
-                            try {
-                                await navigator.clipboard.writeText(val);
-                                td.innerText = "Copied!"; td.style.color = "#a6e3a1";
-                                setTimeout(() => { td.innerText = shortText; td.style.color = '#7aa2f7'; }, 1200);
-                            } catch (err) { td.innerText = "Error"; td.style.color = "#f38ba8"; }
-                        };
-                    } else { td.innerText = val; }
-
+                    td.innerText = val;
                     tr.appendChild(td);
                 });
+
                 tbody.appendChild(tr);
             });
         };
