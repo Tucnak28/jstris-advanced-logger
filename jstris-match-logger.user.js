@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Jstris Match Logger (Tetra Stats & Replay Edition)
 // @namespace    http://tampermonkey.net/
-// @version      4.9
-// @description  Hooks StatsManager, logs base metrics, minimal UI replay buttons, CSV Import/Export.
+// @version      5.0
+// @description  Hooks StatsManager, logs metrics, minimal UI replays, Import/Export, and Advanced Filters.
 // @match        https://jstris.jezevec10.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js
 // @grant        none
@@ -11,6 +11,7 @@
 (function() {
     'use strict';
 
+    // Hook StatsManager
     let hookInterval = setInterval(() => {
         if (typeof StatsManager !== 'undefined' && StatsManager.prototype.render) {
             clearInterval(hookInterval);
@@ -19,7 +20,7 @@
                 window.myLiveStats = this;
                 return originalRender.apply(this, arguments);
             };
-            console.log("Advanced Tetra Stats & Replay Hook Injected! (v4.8 - Import/Export Edition)");
+            console.log("Advanced Tetra Stats & Replay Hook Injected! (v5.0 - Filter Edition)");
         }
     }, 500);
 
@@ -347,6 +348,7 @@
         if (!rawData) rawData = [];
 
         let displayData = rawData.map(row => ({ ...row, ...calculateAdvancedStats(row) }));
+        let currentFilteredData = [...displayData];
         let sortConfig = { column: 'TIMESTAMP', direction: 'desc' };
 
         const overlay = document.createElement('div');
@@ -365,6 +367,11 @@
             box-shadow: 0px 0px 20px rgba(0,0,0,1); overflow: hidden;
         `;
 
+        contentBox.onclick = () => {
+            if(exportDropdown) exportDropdown.style.display = 'none';
+            if(filterDropdown) filterDropdown.style.display = 'none';
+        };
+
         // HEADER
         const headerBox = document.createElement('div');
         headerBox.style.cssText = `
@@ -379,6 +386,158 @@
         const toolbar = document.createElement('div');
         toolbar.style.cssText = 'display: flex; gap: 10px; align-items: center;';
         const btnStyle = `background: #222; color: #ddd; border: 1px solid #555; cursor: pointer; padding: 6px 12px; border-radius: 4px; font-weight: bold; font-size: 12px;`;
+
+        // EXTRACT HEADERS FOR TABLES AND FILTERS
+        let headerSet = new Set();
+        displayData.forEach(row => Object.keys(row).forEach(key => headerSet.add(key)));
+        let allHeaders = Array.from(headerSet);
+        let dataHeaders = allHeaders.filter(h => h !== 'REPLAY' && h !== 'BOT_REPLAY' && h !== 'TIMESTAMP');
+        dataHeaders = ['TIMESTAMP', ...dataHeaders];
+
+        // FILTER DROPDOWN SYSTEM
+        const filterWrapper = document.createElement('div');
+        filterWrapper.style.cssText = 'position: relative; display: inline-block;';
+
+        const filterMainBtn = document.createElement('button');
+        filterMainBtn.innerText = 'Filters ▼';
+        filterMainBtn.style.cssText = btnStyle + ' border-color: #d7ba7d; color: #e5c07b;';
+
+        const filterDropdown = document.createElement('div');
+        filterDropdown.style.cssText = `
+            display: none; position: absolute; top: 100%; right: 0; margin-top: 4px;
+            background: #222; border: 1px solid #555; border-radius: 4px; z-index: 200;
+            width: 320px; flex-direction: column; box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            padding: 10px; cursor: default;
+        `;
+        filterDropdown.onclick = (e) => e.stopPropagation();
+
+        const filterList = document.createElement('div');
+        filterList.style.cssText = 'max-height: 200px; overflow-y: auto; margin-bottom: 10px; display: flex; flex-direction: column; gap: 6px;';
+
+        const addFilterBtn = document.createElement('button');
+        addFilterBtn.innerText = '+ Add Filter Row';
+        addFilterBtn.style.cssText = 'background: #333; color: #ddd; border: 1px solid #555; padding: 4px; border-radius: 3px; cursor: pointer; font-size: 11px; margin-bottom: 10px; transition: background 0.2s;';
+        addFilterBtn.onmouseover = () => addFilterBtn.style.background = '#444';
+        addFilterBtn.onmouseout = () => addFilterBtn.style.background = '#333';
+
+        function createFilterRow() {
+            const row = document.createElement('div');
+            row.style.cssText = 'display: flex; gap: 4px; align-items: center;';
+
+            const statSel = document.createElement('select');
+            statSel.style.cssText = 'background: #111; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px; width: 105px; font-size: 11px; outline: none;';
+            dataHeaders.forEach(h => {
+                let opt = document.createElement('option');
+                opt.value = h; opt.innerText = h;
+                statSel.appendChild(opt);
+            });
+
+            const opSel = document.createElement('select');
+            opSel.style.cssText = 'background: #111; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px; width: 50px; font-size: 11px; text-align: center; outline: none;';
+            ['=', '>', '<', '>=', '<=', '!=', 'has'].forEach(op => {
+                let opt = document.createElement('option');
+                opt.value = op; opt.innerText = op;
+                opSel.appendChild(opt);
+            });
+
+            const valInp = document.createElement('input');
+            valInp.type = 'text';
+            valInp.placeholder = 'Value';
+            valInp.style.cssText = 'background: #111; color: #ddd; border: 1px solid #444; border-radius: 3px; padding: 3px 5px; flex: 1; font-size: 11px; min-width: 0; outline: none;';
+
+            valInp.addEventListener('keydown', (e) => e.stopPropagation());
+            valInp.addEventListener('keyup', (e) => e.stopPropagation());
+            valInp.addEventListener('keypress', (e) => e.stopPropagation());
+
+            const rmBtn = document.createElement('button');
+            rmBtn.innerText = 'X';
+            rmBtn.style.cssText = 'background: #833; color: #fff; border: 1px solid #a44; border-radius: 3px; cursor: pointer; padding: 2px 7px; font-size: 11px; font-weight: bold; transition: background 0.2s;';
+            rmBtn.onmouseover = () => rmBtn.style.background = '#a44';
+            rmBtn.onmouseout = () => rmBtn.style.background = '#833';
+            rmBtn.onclick = () => row.remove();
+
+            row.appendChild(statSel);
+            row.appendChild(opSel);
+            row.appendChild(valInp);
+            row.appendChild(rmBtn);
+
+            row._getFilterData = () => ({
+                stat: statSel.value,
+                op: opSel.value,
+                val: valInp.value
+            });
+
+            filterList.appendChild(row);
+        }
+
+        addFilterBtn.onclick = () => createFilterRow();
+
+        const filterActions = document.createElement('div');
+        filterActions.style.cssText = 'display: flex; justify-content: space-between; gap: 5px;';
+
+        const applyFilterBtn = document.createElement('button');
+        applyFilterBtn.innerText = 'Apply Filters';
+        applyFilterBtn.style.cssText = 'background: #5b8254; color: #fff; border: 1px solid #4a6b45; padding: 6px 10px; border-radius: 3px; cursor: pointer; font-weight: bold; flex: 1;';
+
+        const clearFilterBtn = document.createElement('button');
+        clearFilterBtn.innerText = 'Clear All';
+        clearFilterBtn.style.cssText = 'background: #833; color: #fff; border: 1px solid #622; padding: 6px 10px; border-radius: 3px; cursor: pointer; font-weight: bold; flex: 1;';
+
+        const applyFiltersLogic = () => {
+            let activeFilters = Array.from(filterList.children).map(row => row._getFilterData()).filter(f => f.val.trim() !== '');
+
+            currentFilteredData = displayData.filter(row => {
+                return activeFilters.every(f => {
+                    let rowVal = row[f.stat];
+                    let fVal = f.val.trim();
+
+                    if (rowVal === undefined || rowVal === null) rowVal = '';
+
+                    let numRow = Number(rowVal);
+                    let numF = Number(fVal);
+                    let isNum = !isNaN(numRow) && fVal !== '' && !isNaN(numF);
+
+                    switch(f.op) {
+                        case '=': return isNum ? numRow === numF : String(rowVal).toLowerCase() === String(fVal).toLowerCase();
+                        case '!=': return isNum ? numRow !== numF : String(rowVal).toLowerCase() !== String(fVal).toLowerCase();
+                        case '>': return isNum ? numRow > numF : String(rowVal).toLowerCase() > String(fVal).toLowerCase();
+                        case '<': return isNum ? numRow < numF : String(rowVal).toLowerCase() < String(fVal).toLowerCase();
+                        case '>=': return isNum ? numRow >= numF : String(rowVal).toLowerCase() >= String(fVal).toLowerCase();
+                        case '<=': return isNum ? numRow <= numF : String(rowVal).toLowerCase() <= String(fVal).toLowerCase();
+                        case 'has': return String(rowVal).toLowerCase().includes(String(fVal).toLowerCase());
+                        default: return true;
+                    }
+                });
+            });
+
+            let counterText = currentFilteredData.length === displayData.length
+                ? `${displayData.length} matches`
+                : `${currentFilteredData.length} / ${displayData.length} matches`;
+            title.innerText = `Advanced Match Stats (${counterText})`;
+
+            updateTableBody();
+        };
+
+        applyFilterBtn.onclick = applyFiltersLogic;
+        clearFilterBtn.onclick = () => {
+            filterList.innerHTML = '';
+            applyFiltersLogic();
+        };
+
+        filterActions.appendChild(applyFilterBtn);
+        filterActions.appendChild(clearFilterBtn);
+        filterDropdown.appendChild(filterList);
+        filterDropdown.appendChild(addFilterBtn);
+        filterDropdown.appendChild(filterActions);
+
+        filterWrapper.appendChild(filterMainBtn);
+        filterWrapper.appendChild(filterDropdown);
+
+        filterMainBtn.onclick = (e) => {
+            e.stopPropagation();
+            exportDropdown.style.display = 'none';
+            filterDropdown.style.display = filterDropdown.style.display === 'none' ? 'flex' : 'none';
+        };
 
         // IMPORT LOGIC
         const fileInput = document.createElement('input');
@@ -440,22 +599,33 @@
             min-width: 140px; flex-direction: column; box-shadow: 0 4px 6px rgba(0,0,0,0.5);
             overflow: hidden;
         `;
+        exportDropdown.onclick = (e) => e.stopPropagation();
 
         const dropBase = document.createElement('button');
         dropBase.innerText = 'Base CSV';
-        dropBase.style.cssText = 'background: transparent; color: #ddd; border: none; padding: 10px; text-align: left; cursor: pointer; border-bottom: 1px solid #444; font-size: 12px; font-weight: bold;';
+        dropBase.style.cssText = 'background: transparent; color: #ddd; border: none; padding: 10px; text-align: left; cursor: pointer; border-bottom: 1px solid #444; font-size: 12px; font-weight: bold; transition: background 0.2s;';
         dropBase.onmouseover = () => dropBase.style.background = '#333';
         dropBase.onmouseout = () => dropBase.style.background = 'transparent';
-        dropBase.onclick = () => { exportDropdown.style.display = 'none'; generateCSV(rawData, false, exportMainBtn); };
+        dropBase.onclick = () => {
+            exportDropdown.style.display = 'none';
+            let exportData = rawData.filter(r => currentFilteredData.some(f => f.TIMESTAMP === r.TIMESTAMP));
+            generateCSV(exportData, false, exportMainBtn);
+        };
 
         const dropAdv = document.createElement('button');
         dropAdv.innerText = 'Advanced CSV';
-        dropAdv.style.cssText = 'background: transparent; color: #7aa2f7; border: none; padding: 10px; text-align: left; cursor: pointer; font-size: 12px; font-weight: bold;';
+        dropAdv.style.cssText = 'background: transparent; color: #7aa2f7; border: none; padding: 10px; text-align: left; cursor: pointer; font-size: 12px; font-weight: bold; transition: background 0.2s;';
         dropAdv.onmouseover = () => dropAdv.style.background = '#333';
         dropAdv.onmouseout = () => dropAdv.style.background = 'transparent';
-        dropAdv.onclick = () => { exportDropdown.style.display = 'none'; generateCSV(rawData, true, exportMainBtn); };
+        dropAdv.onclick = () => {
+            exportDropdown.style.display = 'none';
+            let exportData = rawData.filter(r => currentFilteredData.some(f => f.TIMESTAMP === r.TIMESTAMP));
+            generateCSV(exportData, true, exportMainBtn);
+        };
 
-        exportMainBtn.onclick = () => {
+        exportMainBtn.onclick = (e) => {
+            e.stopPropagation();
+            filterDropdown.style.display = 'none';
             exportDropdown.style.display = exportDropdown.style.display === 'none' ? 'flex' : 'none';
         };
 
@@ -470,25 +640,18 @@
         closeBtn.onclick = () => document.body.removeChild(overlay);
 
         toolbar.appendChild(importBtn);
+        toolbar.appendChild(filterWrapper);
         toolbar.appendChild(exportWrapper);
         toolbar.appendChild(closeBtn);
         headerBox.appendChild(title);
         headerBox.appendChild(toolbar);
 
-        // TABLE
+        // TABLE GENERATION
         const tableContainer = document.createElement('div');
         tableContainer.style.cssText = `flex-grow: 1; overflow: auto; padding: 0;`;
 
         const table = document.createElement('table');
         table.style.cssText = `width: 100%; border-collapse: collapse; color: #ccc; font-size: 12px; text-align: right; white-space: nowrap;`;
-
-        let headerSet = new Set();
-        displayData.forEach(row => Object.keys(row).forEach(key => headerSet.add(key)));
-        let allHeaders = Array.from(headerSet);
-
-        let dataHeaders = allHeaders.filter(h => h !== 'REPLAY' && h !== 'BOT_REPLAY' && h !== 'TIMESTAMP');
-
-        dataHeaders = ['TIMESTAMP', ...dataHeaders];
 
         let thead = document.createElement('thead');
         let headerRow = document.createElement('tr');
@@ -550,7 +713,7 @@
                 headerCells[h].innerText = h + (sortConfig.column === h ? (sortConfig.direction === 'desc' ? ' ▼' : ' ▲') : '');
             });
 
-            let sortedData = [...displayData].sort((a, b) => {
+            let sortedData = [...currentFilteredData].sort((a, b) => {
                 let valA = a[sortConfig.column] !== undefined ? a[sortConfig.column] : '';
                 let valB = b[sortConfig.column] !== undefined ? b[sortConfig.column] : '';
                 let comp = (typeof valA === 'number' && typeof valB === 'number') ? valA - valB : String(valA).localeCompare(String(valB), undefined, { numeric: true });
