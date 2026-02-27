@@ -104,7 +104,24 @@
             let matchLog = { TIMESTAMP: localTime };
 
             matchLog.USER_WON = 0;
+            try {
+                let bot = game.Bots.bots[0];
+                matchLog.BOT_NAME = bot.botType.name;
+
+                if (bot.conf.speed === "PPS") {
+                    // PPS mode
+                    matchLog.BOT_SPEED = bot.conf.pps !== undefined ? bot.conf.pps : "PPS";
+                } else {
+                    // TB mode
+                    matchLog.BOT_SPEED = bot.conf.speed !== undefined ? bot.conf.speed : "Unknown";
+                }
+            } catch (e) {
+                matchLog.BOT_NAME = "Unknown";
+                matchLog.BOT_SPEED = "Unknown";
+            }
+
             try { matchLog.BOT_NAME = game.Bots.bots[0].botType.name; }
+
             catch (e) { matchLog.BOT_NAME = "Unknown"; }
 
             matchLog.BOT_APM = 0; matchLog.BOT_PPS = 0; matchLog.BOT_SENT = 0;
@@ -646,12 +663,12 @@
         headerBox.appendChild(title);
         headerBox.appendChild(toolbar);
 
-        // TABLE GENERATION
+        // TABLE
         const tableContainer = document.createElement('div');
         tableContainer.style.cssText = `flex-grow: 1; overflow: auto; padding: 0;`;
 
         const table = document.createElement('table');
-        table.style.cssText = `width: 100%; border-collapse: collapse; color: #ccc; font-size: 12px; text-align: right; white-space: nowrap;`;
+        table.style.cssText = `width: 100%; border-collapse: collapse; color: #ccc; font-size: 12px; text-align: center; white-space: nowrap;`;
 
         let thead = document.createElement('thead');
         let headerRow = document.createElement('tr');
@@ -747,7 +764,7 @@
 
                 dataHeaders.forEach(header => {
                     let td = document.createElement('td');
-                    td.style.cssText = 'padding: 6px 8px; border: 1px solid #333;';
+                    td.style.cssText = 'padding: 6px 8px; border: 1px solid #333; text-align: center;';
                     let val = row[header] !== undefined ? row[header] : '-';
 
                     if (typeof val === 'number' && !Number.isInteger(val)) {
