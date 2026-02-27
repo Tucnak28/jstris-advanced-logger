@@ -1,8 +1,8 @@
 // ==UserScript==
 // @name         Jstris Match Logger (Tetra Stats & Replay Edition)
 // @namespace    http://tampermonkey.net/
-// @version      4.7
-// @description  Hooks StatsManager, logs base metrics, minimal UI replay buttons, organized CSVs.
+// @version      4.8
+// @description  Hooks StatsManager, logs base metrics, minimal UI replay buttons, CSV Import/Export.
 // @match        https://jstris.jezevec10.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js
 // @grant        none
@@ -11,7 +11,6 @@
 (function() {
     'use strict';
 
-    // 1. Hook StatsManager
     let hookInterval = setInterval(() => {
         if (typeof StatsManager !== 'undefined' && StatsManager.prototype.render) {
             clearInterval(hookInterval);
@@ -20,7 +19,7 @@
                 window.myLiveStats = this;
                 return originalRender.apply(this, arguments);
             };
-            console.log("Advanced Tetra Stats & Replay Hook Injected! (v4.7 - Clean UI Edition)");
+            console.log("Advanced Tetra Stats & Replay Hook Injected! (v4.8 - Import/Export Edition)");
         }
     }, 500);
 
@@ -178,11 +177,31 @@
         } catch (e) { console.error("Error reading hooked stats:", e); }
     }
 
+    // --- CSV PARSER (For Imports) ---
+    function parseCSV(csvText) {
+        let lines = csvText.split(/\r?\n/).filter(line => line.trim() !== '');
+        if (lines.length < 2) return [];
+
+        let headers = lines[0].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/).map(h => h.replace(/^"|"$/g, '').trim());
+        let data = [];
+
+        for (let i = 1; i < lines.length; i++) {
+            let currentline = lines[i].split(/,(?=(?:(?:[^"]*"){2})*[^"]*$)/);
+            let obj = {};
+            for (let j = 0; j < headers.length; j++) {
+                let val = currentline[j] ? currentline[j].replace(/^"|"$/g, '').trim() : '';
+                if (val !== '' && !isNaN(val)) val = Number(val);
+                obj[headers[j]] = val;
+            }
+            data.push(obj);
+        }
+        return data;
+    }
+
     // --- CSV EXPORT GENERATOR ---
     async function generateCSV(data, isAdvanced, btnElement) {
         let originalText = btnElement.innerText;
         btnElement.innerText = "Exporting...";
-        btnElement.style.background = "#555";
 
         await new Promise(r => setTimeout(r, 50));
 
@@ -223,7 +242,6 @@
             console.error(err);
         } finally {
             btnElement.innerText = originalText;
-            btnElement.style.background = "#222";
         }
     }
 
@@ -321,9 +339,7 @@
         try { rawData = await localforage.getItem('jstris_log'); }
         catch (e) { alert("Error reading database!"); return; }
 
-        if (!rawData || rawData.length === 0) {
-            alert("No stats logged yet to view!"); return;
-        }
+        if (!rawData) rawData = [];
 
         let displayData = rawData.map(row => ({ ...row, ...calculateAdvancedStats(row) }));
         let sortConfig = { column: 'TIMESTAMP', direction: 'desc' };
@@ -356,26 +372,100 @@
         title.style.cssText = 'color: #eee; margin: 0; font-size: 18px;';
 
         const toolbar = document.createElement('div');
-        toolbar.style.cssText = 'display: flex; gap: 10px;';
+        toolbar.style.cssText = 'display: flex; gap: 10px; align-items: center;';
         const btnStyle = `background: #222; color: #ddd; border: 1px solid #555; cursor: pointer; padding: 6px 12px; border-radius: 4px; font-weight: bold; font-size: 12px;`;
 
-        const expBaseBtn = document.createElement('button');
-        expBaseBtn.innerText = 'Export Base CSV';
-        expBaseBtn.style.cssText = btnStyle;
-        expBaseBtn.onclick = () => generateCSV(rawData, false, expBaseBtn);
+        // IMPORT LOGIC
+        const fileInput = document.createElement('input');
+        fileInput.type = 'file';
+        fileInput.accept = '.csv';
+        fileInput.style.display = 'none';
 
-        const expAdvBtn = document.createElement('button');
-        expAdvBtn.innerText = 'Export Advanced CSV';
-        expAdvBtn.style.cssText = btnStyle + ' border-color: #357ebd; color: #7aa2f7;';
-        expAdvBtn.onclick = () => generateCSV(rawData, true, expAdvBtn);
+        fileInput.onchange = async (e) => {
+            let file = e.target.files[0];
+            if (!file) return;
+            let reader = new FileReader();
+            reader.onload = async (event) => {
+                let csvText = event.target.result;
+                let importedData = parseCSV(csvText);
+
+                if(importedData.length === 0) {
+                    alert("Could not read any matches from the file.");
+                    return;
+                }
+
+                let currentData = await localforage.getItem('jstris_log') || [];
+                let existingTimestamps = new Set(currentData.map(d => d.TIMESTAMP));
+                let addedCount = 0;
+
+                importedData.forEach(row => {
+                    if(row.TIMESTAMP && !existingTimestamps.has(row.TIMESTAMP)) {
+                        currentData.push(row);
+                        addedCount++;
+                    }
+                });
+
+                await localforage.setItem('jstris_log', currentData);
+                alert(`Successfully imported ${addedCount} new matches!`);
+
+                document.body.removeChild(overlay);
+                renderStatsPage();
+            };
+            reader.readAsText(file);
+        };
+        document.body.appendChild(fileInput);
+
+        const importBtn = document.createElement('button');
+        importBtn.innerText = 'Import CSV';
+        importBtn.style.cssText = btnStyle + ' border-color: #5b8254; color: #a6e3a1;';
+        importBtn.onclick = () => fileInput.click();
+
+        // EXPORT DROPDOWN
+        const exportWrapper = document.createElement('div');
+        exportWrapper.style.cssText = 'position: relative; display: inline-block;';
+
+        const exportMainBtn = document.createElement('button');
+        exportMainBtn.innerText = 'Export ▼';
+        exportMainBtn.style.cssText = btnStyle;
+
+        const exportDropdown = document.createElement('div');
+        exportDropdown.style.cssText = `
+            display: none; position: absolute; top: 100%; right: 0; margin-top: 4px;
+            background: #222; border: 1px solid #555; border-radius: 4px; z-index: 200;
+            min-width: 140px; flex-direction: column; box-shadow: 0 4px 6px rgba(0,0,0,0.5);
+            overflow: hidden;
+        `;
+
+        const dropBase = document.createElement('button');
+        dropBase.innerText = 'Base CSV';
+        dropBase.style.cssText = 'background: transparent; color: #ddd; border: none; padding: 10px; text-align: left; cursor: pointer; border-bottom: 1px solid #444; font-size: 12px; font-weight: bold;';
+        dropBase.onmouseover = () => dropBase.style.background = '#333';
+        dropBase.onmouseout = () => dropBase.style.background = 'transparent';
+        dropBase.onclick = () => { exportDropdown.style.display = 'none'; generateCSV(rawData, false, exportMainBtn); };
+
+        const dropAdv = document.createElement('button');
+        dropAdv.innerText = 'Advanced CSV';
+        dropAdv.style.cssText = 'background: transparent; color: #7aa2f7; border: none; padding: 10px; text-align: left; cursor: pointer; font-size: 12px; font-weight: bold;';
+        dropAdv.onmouseover = () => dropAdv.style.background = '#333';
+        dropAdv.onmouseout = () => dropAdv.style.background = 'transparent';
+        dropAdv.onclick = () => { exportDropdown.style.display = 'none'; generateCSV(rawData, true, exportMainBtn); };
+
+        exportMainBtn.onclick = () => {
+            exportDropdown.style.display = exportDropdown.style.display === 'none' ? 'flex' : 'none';
+        };
+
+        exportDropdown.appendChild(dropBase);
+        exportDropdown.appendChild(dropAdv);
+        exportWrapper.appendChild(exportMainBtn);
+        exportWrapper.appendChild(exportDropdown);
 
         const closeBtn = document.createElement('button');
         closeBtn.innerText = 'Close X';
-        closeBtn.style.cssText = btnStyle + `background: #833; color: white; border-color: #a44;`;
+        closeBtn.style.cssText = btnStyle + `background: #833; color: white; border-color: #a44; margin-left: 10px;`;
         closeBtn.onclick = () => document.body.removeChild(overlay);
 
-        toolbar.appendChild(expBaseBtn);
-        toolbar.appendChild(expAdvBtn);
+        toolbar.appendChild(importBtn);
+        toolbar.appendChild(exportWrapper);
         toolbar.appendChild(closeBtn);
         headerBox.appendChild(title);
         headerBox.appendChild(toolbar);
@@ -386,7 +476,6 @@
 
         const table = document.createElement('table');
         table.style.cssText = `width: 100%; border-collapse: collapse; color: #ccc; font-size: 12px; text-align: right; white-space: nowrap;`;
-
 
         let headerSet = new Set();
         displayData.forEach(row => Object.keys(row).forEach(key => headerSet.add(key)));
