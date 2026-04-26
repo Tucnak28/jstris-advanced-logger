@@ -1,7 +1,8 @@
 // ==UserScript==
 // @name         Jstris Match Logger (Tetra Stats & Replay Edition)
 // @namespace    http://tampermonkey.net/
-// @version      5.0
+// @version      5.1
+// @author       Tucnak28
 // @description  Hooks StatsManager, logs metrics, minimal UI replays, Import/Export, and Advanced Filters.
 // @match        https://jstris.jezevec10.com/*
 // @require      https://cdnjs.cloudflare.com/ajax/libs/localforage/1.10.0/localforage.min.js
@@ -671,10 +672,17 @@
         table.style.cssText = `width: 100%; border-collapse: collapse; color: #ccc; font-size: 12px; text-align: center; white-space: nowrap;`;
 
         let thead = document.createElement('thead');
-        let headerRow = document.createElement('tr');
-        let headerCells = {};
+        let headerRow = document.createElement('tr');
+        let headerCells = {};
 
-        let pRepTh = document.createElement('th');
+
+        let delTh = document.createElement('th');
+        delTh.innerText = "Del";
+        delTh.style.cssText = `position: sticky; top: 0; background: #833; color: #fff; padding: 8px; border: 1px solid #444; z-index: 10; text-align: center; border-right: 2px solid #555;`;
+        headerRow.appendChild(delTh);
+
+
+        let pRepTh = document.createElement('th');
         pRepTh.innerText = "Ply. Rep";
         pRepTh.style.cssText = `position: sticky; top: 0; background: #333; color: #fff; padding: 8px; border: 1px solid #444; z-index: 10; text-align: center;`;
         headerRow.appendChild(pRepTh);
@@ -738,11 +746,45 @@
             });
 
             tbody.innerHTML = '';
-            sortedData.forEach((row, index) => {
-                let tr = document.createElement('tr');
-                tr.style.background = index % 2 === 0 ? '#1a1a1a' : '#111';
+            sortedData.forEach((row, index) => {
+                let tr = document.createElement('tr');
+                tr.style.background = index % 2 === 0 ? '#1a1a1a' : '#111';
 
-                let pRepTd = document.createElement('td');
+                // --- NEW: Delete Button Cell ---
+                let delTd = document.createElement('td');
+                delTd.style.cssText = 'padding: 6px 8px; border: 1px solid #333; border-right: 2px solid #555; text-align: center;';
+
+                let delBtn = document.createElement('button');
+                delBtn.innerText = 'X';
+                delBtn.style.cssText = 'background: #833; color: #fff; border: 1px solid #a44; border-radius: 3px; cursor: pointer; padding: 2px 6px; font-weight: bold; font-size: 10px; transition: background 0.2s;';
+                delBtn.onmouseover = () => delBtn.style.background = '#a44';
+                delBtn.onmouseout = () => delBtn.style.background = '#833';
+
+                delBtn.onclick = async () => {
+                    if (confirm(`Are you sure you want to delete the match from ${row.TIMESTAMP}?`)) {
+                        // Remove from database
+                        rawData = rawData.filter(r => r.TIMESTAMP !== row.TIMESTAMP);
+                        await localforage.setItem('jstris_log', rawData);
+
+                        // Update current state arrays
+                        displayData = displayData.filter(r => r.TIMESTAMP !== row.TIMESTAMP);
+                        currentFilteredData = currentFilteredData.filter(r => r.TIMESTAMP !== row.TIMESTAMP);
+
+                        // Update Header Counter
+                        let counterText = currentFilteredData.length === displayData.length
+                            ? `${displayData.length} matches`
+                            : `${currentFilteredData.length} / ${displayData.length} matches`;
+                        title.innerText = `Advanced Match Stats (${counterText})`;
+
+                        // Refresh View
+                        updateTableBody();
+                    }
+                };
+                delTd.appendChild(delBtn);
+                tr.appendChild(delTd);
+                // -------------------------------
+
+                let pRepTd = document.createElement('td');
                 pRepTd.style.cssText = 'padding: 6px 8px; border: 1px solid #333; text-align: center;';
                 if (row['REPLAY'] && row['REPLAY'].length > 20) {
                     pRepTd.innerText = "[ P ]";
